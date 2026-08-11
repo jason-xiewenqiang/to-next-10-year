@@ -14,21 +14,35 @@
  *   └── config.json
  *
  *   2 directories, 3 files
+ * 
+ * 要求：
+ *   - 递归遍历指定目录
+ *   - 使用 ├── 和 └── 字符绘制树形结构
+ *   - 统计文件和目录数量
+ *   - 支持 --depth=N 参数限制深度
+ *   - 忽略 node_modules 和 .git 目录
  */
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const [, , targetArg] = process.argv;
+const args = process.argv.slice(2);
+const targetArg = args.find((arg) => !arg.startsWith('--'));
+const depthArg = args.find((arg) => arg.startsWith('--depth='));
+const maxDepth = depthArg ? Number(depthArg.split('=')[1]) : Infinity;
+const IGNORED_DIRS = new Set(['node_modules', '.git']);
 
 function fail(message) {
   console.error(`错误: ${message}`);
-  console.error('用法: node practice-01-file-tree.js <目录路径>');
+  console.error('用法: node practice-01-file-tree.js <目录路径> [--depth=N]');
   process.exit(1);
 }
 
 if (!targetArg) {
   fail('请指定目录路径');
+}
+if (depthArg && (!Number.isInteger(maxDepth) || maxDepth < 0)) {
+  fail('参数 --depth 必须是大于等于 0 的整数');
 }
 
 const targetDir = path.resolve(targetArg);
@@ -58,19 +72,26 @@ async function printTree(dirPath) {
    * @param {string} currentDir - 当前目录
    * @param {string} prefix - 行前缀（缩进与连接线）
    */
-  async function walk(currentDir, prefix = '') {
-    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+  async function walk(currentDir, prefix = '', currentDepth = 0) {
+    if (currentDepth >= maxDepth) {
+      return;
+    }
 
-    entries.sort((a, b) => {
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    const visibleEntries = entries.filter(
+      (entry) => !(entry.isDirectory() && IGNORED_DIRS.has(entry.name))
+    );
+
+    visibleEntries.sort((a, b) => {
       const aIsDir = a.isDirectory();
       const bIsDir = b.isDirectory();
       if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
 
-    for (let i = 0; i < entries.length; i++) {
-      const entry = entries[i];
-      const isLast = i === entries.length - 1;
+    for (let i = 0; i < visibleEntries.length; i++) {
+      const entry = visibleEntries[i];
+      const isLast = i === visibleEntries.length - 1;
       const connector = isLast ? '└── ' : '├── ';
       const childPrefix = prefix + (isLast ? '    ' : '│   ');
       const fullPath = path.join(currentDir, entry.name);
@@ -78,7 +99,7 @@ async function printTree(dirPath) {
       if (entry.isDirectory()) {
         dirCount++;
         console.log(`${prefix}${connector}${entry.name}/`);
-        await walk(fullPath, childPrefix);
+        await walk(fullPath, childPrefix, currentDepth + 1);
       } else {
         fileCount++;
         console.log(`${prefix}${connector}${entry.name}`);
